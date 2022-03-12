@@ -1,0 +1,296 @@
+---
+title: "STA207-The Effect of Region and Vaccine on the COVID-19 Death Rate"
+author: "Yudong Wang"
+date: "2/28/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r,echo=F,message=F}
+options(warn = -1)
+library(dplyr)
+library(ggplot2)
+library(MASS)
+library(gplots)
+library(car)
+library(maps)
+```
+
+```{r, echo = F}
+# read the data
+main = read.csv("WHO-COVID-19-global-data.csv")
+vac = read.csv("vaccination-data.csv")
+colnames(main)[1] = "Date_reported"
+
+# merge the data sets and do some manipulation
+mydata = vac %>% 
+  filter(FIRST_VACCINE_DATE != "") %>% 
+  right_join(main, by = c("COUNTRY" = "Country")) %>% 
+  dplyr::select(COUNTRY,WHO_REGION,FIRST_VACCINE_DATE,Date_reported,New_cases,New_deaths) %>% 
+  mutate(FIRST_VACCINE_DATE = as.Date(FIRST_VACCINE_DATE)) %>% 
+  mutate(Date_reported = as.Date(Date_reported)) %>% 
+  na.omit() %>% 
+  mutate(startvac = ifelse(FIRST_VACCINE_DATE>Date_reported, "no","yes")) %>% 
+  mutate(deathrate = ifelse(New_cases == 0, 0, New_deaths/New_cases*100))
+
+# get the 7 day avg death rate
+mydata = mydata %>% 
+  group_by(COUNTRY) %>% 
+  mutate(avg_deathrate = stats::filter(deathrate, filter = rep(1/14,14), side = 1)) %>% 
+  filter(avg_deathrate >= 0) %>% 
+  na.omit()
+
+```
+
+
+# Abstract
+
+In this project, I did a research on effects of region and vaccine, both individual and interactive, on the recent COVID pandemic's death rate. By fitting a two way ANOVA model to the dataset and used F-test to make sure the explanatory variables are significant, I found out that region and vaccine will affect the mortality rate of COVID-19, and the interaction effect is also present in the model. This result shows that different regions will have distinctive death rate due some possible differences, such as tradition, policy, and even genes. It's also a proof of vaccine's effectiveness toward the COVID-19, so anti-vaccine movement is kind of a non-sense behavior. From this research, I urge the countries all over the world should take this pandemic more seriously, invest more money and efforts in decreasing possible virus outbreak, and promote the vaccination in their territories. These actions can help the whole world in today's globalization situation.  
+
+# Introduction
+
+Since late 2019, the new virus called COVID-19 casted great shadow over the world. Its high transmission rate and deadly effects caused big troubles worldwide and so many people had passed away because of it. However, from the reports we know the COVID-19's deadliness is different in many situations, and I'm personaly more interested in the effect of different region and vaccination. The vaccination is easy to explain. There are many people doubting the effect of COVID vaccine and some are even against using it. Thus, I would like to know if the vaccine really has effect on the mortality rate or it's just a lie told by the government. The region, on the other hand, involves reasons from multiple aspects. For example, different countries have their own policy and public opinions towards the COVID, and different regions may have different climates that may affect COVID's effectiveness. To achieve my goal, I would like to fit a model of the mortality rate against the region and vaccination. The result of this model can help the readers get a more scientific attitude toward this pandemic. Hopefully, my research can be part of the helping hands that pushed the humanity out of the dire situation caused by the COVID-19.
+
+### Background 
+
+But before get right into the model part, I would like to first share some backgrounds of this COVID-19 pandemic. Although COVID-19 started in late 2019 (it's why it has 19 at the end), majority of the cases happened after 2020, and it's also why the data I would use doesn't contain many observations prior to 2020. Since today, there are over 450 million people infected by the virus and more than 6 million people passed away because of it worldwide (John Hopkins University, 2022). 
+
+In the introduction section, I mentioned that I will use region instead of countries because it's easier to interpret the results. The regions are classified and named by the WHO (World Health Organization), and they are:
+
+- AFRO: Africa Region
+- AMRO: Americas Region
+- EMRO: Eastern Mediterranean Region
+- EURO: European Region
+- SEARO: South-East Asian Region
+- WPRO: Western Pacific Region
+
+We can take a look at the cases of these regions with this map: 
+
+```{r, echo = F, message=F}
+# plot the map, just following the steps in professor's sample
+world <- map_data("world");
+worldplot <- ggplot() +
+  geom_polygon(data = world, aes(x=long, y = lat, group = group)) 
+# get the total cases in each region
+covid = main %>% 
+  group_by(Country) %>% 
+  summarise(New_cases = sum(New_cases), New_deaths = sum(New_deaths)) %>% 
+  mutate(region = Country) %>% 
+  mutate(region = replace(region, region == "United States of America", "USA")) %>% 
+  mutate(region = replace(region, region == "Russian Federation", "Russia"))
+# combine the dataset
+covid.world<- inner_join(world, covid, by = "region")
+# plot the map
+fig.map  <- ggplot() +
+  geom_polygon(data = covid.world, aes(x=long, y = lat, group = group, fill=New_cases)) + 
+  coord_fixed(1.3) + ggtitle("Total Cases in Each Country Till Today")
+fig.map
+```
+
+There are some countries missing in this map, but since most major countries are represented well in it, it's still informative. From the map, we can see that the US, Brazil, India, Russia, and some European countries are the brightest, so they had the most COVID-19 cases during this pandemic. The death numbers, on the other hand, looks like this:
+
+```{r, echo = F}
+fig.map  <- ggplot() +
+  geom_polygon(data = covid.world, aes(x=long, y = lat, group = group, fill=New_deaths)) + 
+  coord_fixed(1.3) + ggtitle("Total Deaths in Each Country Till Today")
+fig.map
+```
+
+Overall, it's pretty similar to the total cases map. So we can probably say that AMRO, EMRO, and EURO may be the regions with the highest death rates worldwide. It's kind of counter-intuitive because we tend to believe that these regions have better technologies and should perform better during this pandemic, but they actually have more cases than other regions. Also, the AFRO has surprisingly low number of cases and deaths, and this may be caused by the high temperature limited COVID-19's transmission ability (Heibati, 2021).
+
+# Descriptive analysis 
+
+In this research, two datasets are being used. They are both provided by the WHO on its official website, so they are both very trustworthy. The first dataset is called "WHO-COVID-19-global-data.csv" (will be called "Covid dataset" in the later parts), and the second dataset is "vaccination-data.csv" (will be called "Vaccine dataset"). The Covid dataset contains observations between the beginning of COVID (01/03/2020) to the date this report is written (02/16/2022) from 237 countries worldwide, so there are 183912 observations in total. It also has 8 variables, including Date reported, Country name, Country code, etc. But I will only use Country (name of the country), WHO Region (the region assigned by WHO), New cases (new cases per day), and New deaths (new deaths per day) because I'm more interested in these topics. The Vaccine dataset contains 228 observations of 14 variables, but since we are only interested in the date when each country gets their first vaccine, I would only use Country and First vaccine date. 
+
+But before doing my research on the datasets, I would like to do some data preprocess first. I combined two datasets together by the country name, removed NA values, and did some manipulation with it. I first added a dummy variable called "startvac" to record if a country has vaccine on that specific date. Then, I calculated the separate death rate by dividing New cases with New deaths, and get a 14-days average death rate varaible based on death rate variable. At the end, the preprocessed dataset looks like this:
+
+```{r,echo=F,message=F}
+
+# display the data
+head(mydata)
+```
+
+Now let's take a look at some plots. The first plot I would like to show is the spaghetti plot of average 14-days death rate vs. date in each region.
+
+```{r, echo=F}
+# get the dataset with avg region death rate
+region_death = mydata %>% 
+  group_by(Date_reported, WHO_REGION) %>% 
+  mutate(region_death = mean(avg_deathrate)) 
+
+
+# plot avg death rate in each region
+ggplot(region_death, aes(x = as.Date(Date_reported), y = region_death)) +
+  geom_line(aes(color = WHO_REGION)) + ggtitle("Avg. 14-days Death Rate of Each Region") + xlab("Date") + ylab("Avg. death rate")
+```
+
+From this plot, we can see that each region's death rate trend is pretty similar. They usually have two big spikes around mid-2020 and late 2021. But be more specific, there are still many differences. The EURO region tend to have very high average death rate overall, followed by the EMRO region. WPRO region seemed to have the lowest average death rate, but there's a abrupt increase in late 2021. The SEARO might be the most wierd region, as it had a sudden spike in late 2020 instead, when all other regions were having very low average death rate. These findings somehow against my expectation, as I'm expecting regions with high technology and more advanced society (like EURO and AMRO) are actually doing very bad during the pandemic, but on the other hand, small regions (like SEARO and WPRO) are doing well like I mentioned in previous section. We can also make similar conclusions based on another scatter plot.
+
+```{r , echo = F, message=F}
+mydata %>% 
+  group_by(WHO_REGION, Date_reported) %>% 
+  summarise(New_cases = sum(New_cases), New_deaths = sum(New_deaths)) %>% 
+  ggplot(aes(x = New_cases, y = New_deaths, col = WHO_REGION)) + geom_point(alpha = 0.5, size = 1) + ggtitle("Daily Cases vs. Daily Deaths in Each Region") + xlab("Daily cases") + ylab("Daily deaths")
+```
+
+This scatter plot plots the daily cases against the daily deaths in each region throughout the pandemic period. Some death rate trends are clearer in this plot. For example, AMRO, EURO, and EMRO region's points appear more frequently in on the top-left corner (although AMRO and EURO region have some points on the bottom-right side, but overall there aren't a lot points behaving in this way), meaning their death rates should be higher than other regions, same with what we interpreted from the previous plot. Since these two plots only show the region's effects on death rate, so I would like to use another plot to demonstrate the vaccine's effect on death rate. The third graph would be a bar plot showing the vaccine's effect on average death rate in each region. 
+
+```{r, echo=F,message=F}
+# get the average deathrate of each region
+region_deathrate = mydata %>% 
+  filter(New_cases > 0) %>% 
+  group_by(WHO_REGION, startvac) %>% 
+  summarise(avg_deathrate = mean(deathrate))
+# plot the histogram
+ggplot(region_deathrate, aes(x = WHO_REGION, y = avg_deathrate)) + geom_bar(aes(color = startvac, fill = startvac), stat = 'identity', position = position_dodge(width = 0.5)) + ggtitle("Avg. Death Rate Before and After the Vaccine") + xlab("WHO Region") + ylab("Avg death rate") 
+```
+
+From the bar plot, we can see that most regions have their average death rate decreased after the introduction of vaccine except AFRO region. This fits our expectation of vaccine's effect on controlling the death rate, but AFRO's strange behavior may need more research. The next part would be two factor effect plots (with $\alpha = 0.01$) showing the numerical values of each region and vaccine's effect on death rate.
+
+```{r, echo = F, message=F}
+options(warn = -1)
+par(mfrow = c(2,1))
+region_death = region_death %>% 
+  filter(New_cases > 0) 
+plotmeans(region_death$avg_deathrate~region_death$WHO_REGION, p = 0.99, xlab = "Region", ylab = "avg death rate")
+plotmeans(region_death$avg_deathrate~region_death$startvac, p = 0.99, xlab = "Have vaccine or not", ylab = "avg death rate")
+```
+
+Overall, we can see that the numerical values of death rate also supports my interpretation on the previous plots. AMRO, EMRO, and EURO are the three regions with the highest death rate, and vaccine is helpful in decreasing the death rate. However, before making conclusions right now, their true effects still need to be tested by the model in the later part of this project.  
+
+
+
+
+# Inferential analysis 
+
+In this project, my initial guess of the appropriate model would be a two way ANOVA model with interaction terms. I choose this model in particular because there are multiple explanatory variables I'm interested in, so one way ANOVA model would be insufficient for sure. Also, I'm more interested in whether there's difference between each region's death rate before/after the COVID-19 vaccine, so no multiple regression is needed here. 
+
+The first model is simple: $Avg \space Death \space Rate_{ijk} = \mu + Region_i + Vaccine_j + (Region*Vaccine)_{ij}+\epsilon_{ijk}$. However, when checking its assumptions, I found it performed badly in terms of normality, so I also ran a boxcox plot to see what transformation might be useful in solving this problem. 
+```{r, echo = F}
+# 1st ANOVA model
+myaov = aov((avg_deathrate+0.00001)~WHO_REGION*startvac, data = mydata)
+par(mfrow = c(1,2))
+# check normality
+plot(myaov, which = c(2))
+# find transformation
+boxcox(myaov)
+```
+
+With the help from boxcox plot, I decided to use log transformation on the response variable. However, the performance of the model is still not great. Thus, I tried to add some constants on top of the original response variable, and after few tries, I found the best performing model, and the The final model is:
+
+$$log(Y_{ijk}+\frac{1}{4}) = \mu + R_i + V_j + (RV)_{ij}+\epsilon_{ijk}$$
+where 
+
+- $Y_{ijk}$ = the average 14-days death rate of each country
+- $\mu$ = the overall mean of average 14-days death rate
+- $R_i$ = factor effect of each region
+- $V_j$ = factor effect of having vaccine or not
+- $(RV)_{ij}$ = the interaction effect
+- $\epsilon_{ijk}$ = the residuals
+
+and 
+
+- $\sum R_i = \sum V_j = 0$
+- $\sum^r_{i = 1} (RV)_{ij} = \sum^v_{j = 1} (RV)_{ij} = 0$
+- $\epsilon_{ijk}$ are iid $N(0, \sigma^2)$
+
+These are the summary of the model I fit:
+```{r, echo = F}
+# 2nd ANOVA model with log transformation
+logaov = aov((log(avg_deathrate+1/4))~WHO_REGION*startvac, data = mydata)
+summary(logaov)
+```
+
+Next, I would like to use hypothesis tests to see if the explanatory variables in the model can be removed. I used the F-test to achieve this goal. By setting the the null hypothesis as $H_0: all \space R_i = 0$ and $H_1: not \space all \space R_i = 0$, I can begin the test on Region's significance
+
+```{r, echo = F}
+# get the f score and crit value table
+f_score = c(anova(logaov)$`F value`[1:3])
+crit_value = c(qf(1-0.01/2, 5, 157020), qf(1-0.01/2, 1,157020), qf(1-0.01/2, 5, 157020))
+ftable = data.frame(f_score, crit_value)
+row.names(ftable) = c("Region", "Vaccine","Interaction")
+ftable
+```
+From the F-score table, it's easy to see that all F-score for Region variable (3739.89) is much larger than the critical value (3.35), which means the Region is very significant even under significant level $\alpha = 0.01$. Same situation also happened with the rest explanatory variables. This is a good result because it means the explanatory variables I put in are all very important in affecting the response variable, the log avg. 14-days death rate.
+
+Although I'm not very interested in the real difference between each region and vaccination, it's still a wise choice to take a quick peek at them. Thus, I also did a Tukey test, and the results are:
+
+```{r, echo = F}
+# run the Tukey test
+mytukey = TukeyHSD(myaov)
+mytukey$WHO_REGION
+mytukey$startvac
+par(mfrow = c(1,3))
+plot(mytukey)
+```
+
+These graphs are slightly hard to read, but there are still some interesting findings. First, The AMRO, EMRO, and EURO regions can be the worst-performing regions during the COVID-19 because the difference interval between other regions and them are mostly negative. This means their avg. 14-days death rates are generally higher than other regions, which is not a good sign. Also, the AFRO region performed surprisingly well in terms of death rate when comparing to other regions, so I think it's worthstudying in the future. Another finding is that the death rate with vaccine minus the death rate without vaccine is also negative, so we can gladly say that vaccine is helping humans to decrease the mortality rate under this deadly pandemic.
+
+
+# Sensitivity analysis 
+
+The last step is to check whether my model holds the model assumptions. One of the best way is to check the residual plots and QQ-plot. 
+```{r, echo = F}
+# check normality
+par(mfrow = c(1,2))
+plot(logaov, which = c(1,2))
+ 
+```
+
+Overall, the QQ-plot looks much nicer compared to the QQ-plot before transforming the response variable, but it's still performing wierdly at the beginning and end. Also, the residual plot shows that the variance is clearly not equal. The result from the Levene test (very small p-value) also supports this idea. This means the normality assumption might be violated here.
+```{r, echo = F}
+# levene test for equal variance
+leveneTest((log(avg_deathrate+1/4))~interaction(WHO_REGION, startvac), data = mydata)
+```
+But by looking at the histogram of the response variable, we can see what caused this problem:
+```{r, echo = F}
+# get the histogram
+ggplot(mydata, aes(x = log(avg_deathrate + 1/4))) +
+geom_histogram(colour = 2, fill ="white")
+```
+
+From the histogram above, it's easy to find out that there are a lot of values stacking at the leftmost section. It's because there are many observations of average 14-days death rate are equal to 0. This makes the variable not normal, and if we ignore this part, the rest observations are pretty close to the normal distribution like these
+
+```{r, echo = F}
+# get dataset without 0
+nozero = mydata %>% 
+  filter(avg_deathrate > 0)
+nozeroaov = aov((log(avg_deathrate+0.02))~WHO_REGION*startvac, data = nozero)
+# plot the residual and qqplot
+par(mfrow = c(1,2))
+plot(nozeroaov, which = c(1,2))
+```
+
+The residual plots also looks good
+
+```{r, echo = F}
+# histogram of residual
+ggplot(nozero, aes(x = nozeroaov$residuals)) +
+geom_histogram(colour = 2, fill ="white")
+```
+
+However, since the 0 average 14-days death rate has its meaning, we can't simply remove these observations, so I will stick with my final model even though it violated some assumptions.
+
+# Conclusion
+
+From the research, I found out that the variables that I'm interested in (region and vaccine) do have significant impact on the death rate. Counter-intuitively, high technology regions like American and European countries tend to have higher death rate than some low technology regions. I believe there might be some virus policy problems in these regions. The African region, thanks to its high climate, magically maintained a low death rate. The vaccines are generally very helpful in controlling the virus worldwide, as most region's death rate decreased after having the vaccines. But the African region now becomes the only region with increasing death rate even after having the vaccines. I think this shows the African governments can't fully utilize the effect of vaccines. However, although I made these conclusions based on the model I build, my model is far from being perfect. The model assumptions like normality assumption are violated in my model because the response variable contains too many observations that are equal to 0, which made the model hard to achieve normal distribution. Thus, this will be the next step I will try to solve in the future studies. 
+
+But still, I would like to urge people worldwide to get vaccinated because it's proved to help the humanity to fight against this deadly pandemic, and I wish regions with higher technology and utilize their advantages better, so more people may survive. At the end, I hope my project can help more people to realize the effect of vaccine and region on the COVID-19's mortality rate, so we can have a better world in the future.
+
+\newpage
+
+# Appendix
+### Reference
+Heibati, Behzad, et al. “Weather Conditions and COVID-19 Incidence in a Cold Climate: A Time-Series Study in Finland.” Frontiers, Frontiers in Public Health, 25 May 2021, https://www.frontiersin.org/articles/10.3389/fpubh.2020.605128/full.
+
+Hopkins, John. “Coronavirus Resource Center.” Johns Hopkins Coronavirus Resource Center, John Hopkins University, https://coronavirus.jhu.edu/.
+
+
+### Codes
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
