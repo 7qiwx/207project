@@ -1,0 +1,187 @@
+---
+title: "Practice Project 1 Data Analysis Report "
+author: "Yue Ouyang 920241282"
+date: "21 Jan 2022"
+output:
+  html_document:
+    df_print: paged
+    number_sections: yes
+---
+```{r global_options, echo=FALSE}
+knitr::opts_chunk$set(fig.pos = 'H')
+```
+
+
+# Abstract 
+
+This report aims to analyze the math grade in different class sizes and different schools. The data set from STAR, which named Tennessee Student/Teacher Achievement Ratio study. To select the variables which are class type, math grades, school ID, and experience of the teacher, and summarize univariate descriptive statistics for these variables such as mean, standard deviation, and quantiles. It indicates that with the increase of class size, the mean of math grade gets lower and for the same class size, the mean of math grade in the full-time teacher class is larger than in regular class. 
+
+From the data set, I find that multiple numbers of students' math grades are assigned to every teacher. And based on it, summarizing some multivariate descriptive statistics shows that the teacher who is in the small size class has higher math grades. Moreover, using a two-way ANOVA model in the data we find the model obeys some assumptions, for instance, the variances of each variable are not all equal. It is concluded that students in small-size classes have higher math grades, but actually, it may make the education resources insufficient. Therefore, it reflects the significance of optimizing education resources.
+
+
+# Introduction
+
+The one of most concerning society topic is the improvement of teaching quality and teaching quality involves multiple aspects including students' grades and teachers' attitude and technology level. All these aspects are considered influential factors and this report will focus on analyzing the students' grades. In this report, math grades can reflect students' learning skill and can be represented the teaching quality. Given these thought process, this report addresses 3 questions below:
+
+1.Is there any differences in math scores across class type?
+
+2.How does math grade vary across class type?
+
+3.If there are differences in math scores across class type, Which class type is associated with the highest math scores?
+
+The motivation,according to analyzing and testing the results, is to improve teaching quality and optimize the efficiency of educational resource allocation. By comparing the math scores of different class type, it is directly to find the relationship between the math scores and class type and helps to regulate teaching resource.
+ 
+# Background 
+
+In 1984, TSU center and Educationally Disadvantaged started a program about the impact of small class size in a school and this report is inspired by the program. In this report, the significance of students' grades is discussed by analyzing the data set from AER. Since only examining the math scores in 1st grade in this project, the variables are gender(factor variable)、ethnicity(factor variable)、birth、star1(indicating the STAR class type with levels regular, small or regular-aide)、math1(the total math scaled scored in 1st grade)、experience1(the years of teacher's total teaching experience in 1st grade)、tethnicity1(indicating teacher's ethnicity in 1st grade with levels Caucasian or African-American) and schoolid1(indicating school ID in 1st grade) and the response variable is math1 and the rest of them are predictor variables. There are 6558 data records in total after data cleaning to omit the variables with NA and these data randomly select from 79 schools.
+
+# Descriptive analysis 
+
+```{r echo=FALSE}
+library(AER)
+data("STAR")
+library(dplyr)
+library(qwraps2)
+data<-STAR%>%select(star1,math1,experience1,tethnicity1,schoolid1)
+new_data<-na.omit(data)
+glimpse(new_data)
+```
+#Descriptive analysis about different class type
+
+The variables in the table are factor variables except for math1 and experience1. The star1 variable is represented class type and it has three levels which are small(13 to 17 students per teacher), regular(22 to 25 students per teacher), and regular-aide(22 to 25 students with a full-time teacher's aide). In order to find any differences in math across class type, the report calculated the mean, median, and standard deviation of math grades in different class type. The table shows the mean of math grade in regular size class is 525.3527, while the mean of math grade in small size class is 538.6008. Also, it shows that the mean of math grade in regular-aide class, which is 529.6817 is larger than in regular class. It indicates that with the increase of class size, the mean of math grade gets lower and for the same class size, the mean of math grade in the full-time teacher class is larger than in regular class. 
+
+```{r echo=FALSE}
+new_data%>%group_by(star1)%>%summarise(mean(math1),sd(math1),median(math1)) #calculate the mean ,median and standard deviation of math1 with different class type.
+```
+
+
+From observing the quntiles table of math grade by grouping variables, it shows that whether math grade in the 25%, 50% or 75%, small size class is larger than in regular and regular-aide class. For the regular class size, the math grade in 25% quantile is 495 and in 75% quantile is 553. For the small class size, math grade in 25% is 507 and in 75% is 567. By comparing regular and small class size, it indicates that the smaller class size, higher math grades.
+```{r echo=FALSE}
+q=c(0.25,0.50,.75) #define quantiles of interest
+new_data%>%group_by(star1)%>%summarize(
+  quant25=quantile(math1,prob=q[1]),
+  quant50=quantile(math1,probs=q[2]),
+  quant75=quantile(math1,probs=q[3])) #calculate quantiles by grouping variable
+new_data%>%group_by(experience1,tethnicity1,schoolid1,star1)%>%summarise(mean=mean(math1),median=median(math1),sd=sd(math1))
+new_data%>%group_by(experience1,tethnicity1,schoolid1,star1)%>%summarize(
+  quant25=quantile(math1,prob=q[1]),
+  quant50=quantile(math1,probs=q[2]),
+  quant75=quantile(math1,probs=q[3]))
+```
+#Descriptive analysis about each teacher
+
+According to the data set, the number of students are assigned by each teacher. Thus, we summarize measure with each teacher, and calculate the math grades of mean, median and quantiles in each teacher. It indicates that the teacher who in the small size class has higher math grades whatever in mean, median and quantiles. Also ,it means that the mean of small class size higher than other two class type when each teacher as a unit.
+
+```{r echo=FALSE}
+teacher<-new_data%>%group_by(experience1,tethnicity1,schoolid1,star1)%>%summarise(mean=mean(math1))
+library(ggplot2)
+ggplot(teacher,aes(x=star1,y=mean))+
+  geom_boxplot(notch = TRUE,outlier.color = "blue",outlier.shape = 6,outlier.size = 5)+
+  stat_summary(fun.y = mean,geom = "point",shape=23,size=4)
+```
+From the box plot about teachers v.s. class type, we can find that the small size class has a higher mean and it is the same result as previous. Also, this reinforces the fact that the smaller class size of each teacher has, the better the students' performance.
+
+```{r echo=FALSE}
+teacher%>%group_by(schoolid1)%>%summarise(mean=mean(mean))
+```
+Since there are many teachers and class sizes in each school, using school ID to classify and find the differences in students' math grade between schools. According to the table, I find that there are little differences in different schools.
+
+# Inferential analysis 
+
+#Build a two-way ANOVA model
+
+```{r echo=FALSE}
+full_model<-lm(math1~star1+schoolid1+star1*schoolid1,data=new_data)
+reduced_model<-lm(math1~star1+schoolid1,data = new_data)
+anova(full_model,reduced_model)
+```
+
+
+The model by using two-way ANOVA is $$Y_{ijk} = \mu_{..} + \alpha_{i} +(\alpha\beta)_{ij}+\epsilon_{ijk}$$
+where the star1 (denoted factor A) has $a=3$ levels: small ($i=1$), regular ($i=2$), regular with aide ($i=3$), and the schoolid1 (factor B) has $b=80$ levels :$j=1,...,80$.$\mu_{..}$ is represented the over mean and $\mu_{..}=\sum_{i = 1}^{a}\sum_{j=1}^{b}\mu_{ij}/(ab)$. A total of 1573920 subjects suffering from STAR are selected and each of the 240 compounds are given to randomly selected n=6558 individuals. It is natural to consider a two-way ANOVA model here, and the next question is whether the interaction effects are present. Specifically,Whether the interactions ${(\alpha\beta_{ij})}$ can be drooped. 
+
+#Assumptions about the model
+
+The assumptions about two-way anova are below:
+
+1.The response variable in each group basically follow normal distribution.
+
+2.The variance of each group is essentially the same.
+
+3.Observations are independent of each group and within-group observations are obtained from a random sample.
+
+#Select model by using math grades 
+
+Using F-test to solve the question below mentioned. Firstly. suppose that we are interested in testing the presence of interactions.
+Null hypothesis is $$H_o:(\alpha\beta)_{ij}=0$$
+Alternative hypothesis is $$H_1:not\ all\ (\alpha\beta)_{ij}\ are\ zero$$
+Thus, $$\ Full\ model:Y_{ijk}=\mu_{..}+\alpha_i+\beta_j+(\alpha\beta)_{ij}+\epsilon_{ijk}$$
+$$\ Reduced\ model:Y_{ijk}=\mu_{..}+\alpha_i+\beta_j+\epsilon_{ijk}$$
+```{r echo=FALSE}
+full_model<-lm(math1~star1+schoolid1+star1*schoolid1,data=new_data)
+reduced_model<-lm(math1~star1+schoolid1,data = new_data)
+anova(full_model,reduced_model)
+```
+According to the Analysis of Variance Table, F=3.6241 and p-value<2.2e^-16, we can reject the null hypothesis and interaction terms cannot be dropped but in order to simplicity the model,I decide to drop the interaction terms . 
+
+For building a anova model, the coefficients of fitted model are too many ,so I think it is not necessary to report the estimated coefficients for school IDs.
+
+#Tukey mathod to test mean of each class type
+```{r echo=FALSE}
+library(multcomp)
+anova.fit<-aov(math1~star1+schoolid1,data=new_data)
+summary(glht(anova.fit,linfct = mcp(star1 ="Tukey")))
+```
+For the secondary question of interest, using Tukey-Kramer method to test the mean of each group.
+The null hypothesis is $$\mu_1=\mu_2=\mu_3$$
+The alternative hypothesis is $$ not\ all\ \mu \ are\ equal $$
+From Simultaneous Tests for General Linear Hypotheses, I find that p-value<1e^-04 is very small and it can reject the null hypothesis from linear hypothesis about small-regular==0 .Thus, it is concluded that different class size has different mean of math grades.
+
+# Sensitivity analysis 
+
+```{r echo=FALSE}
+anova.fit2<-aov(mean~star1+schoolid1,data=teacher)
+options(repr.plot.width=12, repr.plot.height=6)
+par(mfrow=c(1,2))
+plot(anova.fit2,cex.lab=1.2,which=1:2)
+par(mfrow=c(1,1))
+```
+#diagnostic plots
+
+According to Residuals v.s. Fitted values plot, residuals are follow normal distribution and independent of fitted values.
+From checking Q-Q plot, the observations fall along a straight diagonal line in it, but some points out of the line, thus the data set likely not follows a normal distribution and it shows right tailed.
+
+#Test assumption 
+```{r echo=FALSE}
+library(car)
+leveneTest(mean~star1*schoolid1,data=teacher) 
+```
+
+Using levenetest to test whether the variance is equal in this model. The null hypothesis is $$ H0:\sigma_1^2= \sigma_2^2=\sigma_3^2  $$
+The alternative hypothesis is $$ Not\ all\ variances \ are\ equal. $$
+According to the result table, The p-value= 2.191e^-05 and it indicates that we need to reject the null hypothesis and the variances are not all equal.
+
+
+# Discussion 
+
+Through the analysis of the math grade data set, it is been proven that there are differences in math scores in 1st grade across class types. Specifically, with the increase of class size, the mean of math grade gets lower and for the same class size, the mean of math grade in the full-time teacher class is larger than in regular class. Also, it indicates that the teacher who in the small size class has higher math grades and different schools have different teaching quality. Students in small-size classes have higher math grades, but actually, it may make the education resources insufficient. Therefore, it reflects the significance of optimizing education resources. Thus, choosing a smaller class size in school if conditions allow, and if not we can assign an assistant teacher to help improve teaching quality in each class. 
+
+In the future research, I suggest that adding some different level grades not only from 1st year and analyzing is there any difference in these various class size.
+
+
+# Acknowledgement {-}
+
+
+# Reference {-}
+
+
+# Session info {-}
+
+<span style='color:blue'>
+Report information of your `R` session for reproducibility. 
+</span> 
+
+
+```{r}
+sessionInfo()
+```
