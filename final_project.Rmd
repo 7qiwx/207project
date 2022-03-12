@@ -1,0 +1,250 @@
+---
+title: "Draft Report"
+author: "Wenxuan Qi"
+date: "03/03/2022"
+output:
+  html_document:
+    df_print: paged
+    number_sections: yes
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'H')
+```
+
+
+***
+
+# Abstract 
+In recent 2 years, COVID-19 has become an important issue in people's lives. It transmits very fast and even causes deaths. All country put into efforts to resolve the tough situation. Vaccinations are developed soon after the outbreaks. Various regulations are set such as stay-at-home and social distancing policies. This report explore the COVID-19 dataset and the vaccination dataset from World Health Organization to answer 2 main questions. After doing statistical analysis, it is concluded that there exist regional effect and vaccination effect on case-fatality rate. Whereas, the test failed to recognize the combination with lowest mean case-fatality rate. Future studies could dig deeper into the regional effect to see its causes.
+
+
+# Introduction
+
+The COVID-19 pandemic has been an unprecedented event that influenced people's lives and caused severe results. The case-fatality rate is one of the concerning metrics related to COVID-19. The disease could cause death, and it is urgent for people to find a way to avoid this. As the pandemic was firstly discovered in December 2019 and spread worldwide, scientists started to develop vaccinations to prevent the infectious disease. There are various brands of vaccinations that were developed at different time and used in different countries. The vaccination effect is always a concerning aspect that both the company that produces it and people who use it care about. The COVID-19 situation is still quickly changing all the time, while governments issue different regulations related to vaccination. Therefore, besides vaccination factor, region is another factor that this report will look at. To investigate the potential influencing factors, this report uses 2 datasets from World Health Organization, COVID-19 daily data and COVID-19 vaccination data, and focuses on 2 main questions: 
+
+1. Are there any effects of Region and whether vaccination has been used on case-fatality rate? 
+
+2. If these two effects are proved significant, which cell have the lowest case-fatality rate? 
+
+</span>
+ 
+# Background 
+
+<span>
+
+Two datasets are used in this project. Both of them are official data from the World Health Organization, which is a reliable source. Since countries started vaccination at different time and the question of interest involves the effect of vaccination use, the target countries are all countries data record in the dataset. Also, countries are located in various regions, which provides enough data record for each region to explore the effect of region. As the first case appeared in different countries at various time, the target time period is from the date the first case appeared to Mar.3rd, 2022.
+
+## WHO COVID-19 dataset
+The World Health Organization COVID-19 dataset contains over 180,000 daily records of different countries from January 2020 to February 2022. It records countries information, reported date and corresponding number of new cases, number of cumulative cases, number of new deaths and number of cumulative deaths. The region information is used to analyze records at a regional level. The number of new cases and number of new deaths are used to calculate the case-fatality rate per record.
+
+## WHO COVID-19 Vaccination dataset
+The COVID-19 Vaccination dataset from World Health Organization contains statistics of vaccination uses, the date begin to use vaccination and vaccination information reported by 228 countries in the world. The start date of vaccination and number of used vaccination types are utilized to explore the effect of vaccination and how do vaccination types perform in detail.
+
+## Variables
+1. Case-fatality rate: It is firstly calculated as $\frac{Number~of~New~Deaths}{Number~of~New~Cases}$. This outputs a fatality rate of every record that reported by different countries in different days. The virus has incubation time period of 7 days, so the final case-fatality rate is further calculated by running 7-day average.
+
+2. WHO_Region: It is a categorical variable having 6 levels: AFRO(African Region), AMRO(Region of the Americas), SEARO(South-East Asian Region), EURO(European Region), EMRO(Eastern Mediterranean Region), WPRO(Western Pacific Region).
+
+3. Started_Vac: It is a categorical variable having 2 levels: yes, no. After the 2 datasets are joined together by country, this variable is calculated as comparing the reported date of each record and the first day of using vaccination in its corresponding country. 
+
+4. Number_Vac_Type_Used: It is a categorical variable ranging from integers between 0 and 11, which indicates the number of vaccination type used in the country.
+
+## Data Cleaning
+In the WHO COVID-19 dataset, we found out that there are 183 records containing negative values for number of new cases and number of new deaths. We believe these were data error and removed these records. After removing the data records before the first case appeared in each country respectively, the final dataset contains 108888 records.
+</span>
+
+
+```{r, echo=FALSE}
+covid <- read.csv("https://covid19.who.int/WHO-COVID-19-global-data.csv")
+
+vac <- read.csv("/Users/qiwenxuan/desktop/vaccination-data.csv")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+suppressPackageStartupMessages({
+    library(ggplot2)
+    library(dplyr)
+})
+options(dplyr.summarise.inform = FALSE)
+
+covid = covid %>% filter(New_cases >= 0 & New_deaths >= 0)
+
+#merge data
+#add started_vac, number_cav_type_used and death_rate
+merged_data = vac %>% filter(FIRST_VACCINE_DATE != "") %>% 
+  right_join(covid, by = c("COUNTRY" = "Country")) %>%
+  select(COUNTRY, WHO_REGION, FIRST_VACCINE_DATE, Date_reported, New_cases, NUMBER_VACCINES_TYPES_USED, New_deaths) %>%
+  mutate(started_vac = ifelse(FIRST_VACCINE_DATE > Date_reported, "no", "yes"),
+         NUMBER_VACCINES_TYPES_USED = ifelse(FIRST_VACCINE_DATE > Date_reported, 0,NUMBER_VACCINES_TYPES_USED),
+         death_rate = ifelse(New_cases == 0, 0, New_deaths/New_cases))
+
+#rename columns
+colnames(merged_data) = c("Country", "WHO_Region", "First_Vac_Date", "Report_Date", "New_Cases", "Number_Vac_Types_Used","New_Deaths", "Started_Vac", "Death_Rate")
+
+#change some variable types to factor or date
+merged_data$WHO_Region = as.factor(merged_data$WHO_Region)
+merged_data$Country = as.factor(merged_data$Country)
+merged_data$Number_Vac_Types_Used = as.factor(merged_data$Number_Vac_Types_Used)
+merged_data$Started_Vac = as.factor(merged_data$Started_Vac)
+merged_data$Report_Date = as.Date(merged_data$Report_Date)
+
+#average death_rate
+my_data = merged_data %>% group_by(Country) %>%
+  mutate(avg_death_rate= stats::filter(Death_Rate, filter = rep(1/7,7), side = 1)) %>%
+  filter(New_Cases != 0) %>%
+  na.omit()
+```
+
+# Descriptive analysis 
+
+```{r, echo=FALSE}
+ncs = summary(my_data$New_Cases)
+nds = summary(my_data$New_Deaths)
+drs = summary(my_data$avg_death_rate)
+t1 = as.table(cbind(as.matrix(ncs), as.matrix(nds), as.matrix(drs)))
+colnames(t1) = c('Number of New Cases', 'Number of New Deaths', 'Case-fatality Rate')
+t1
+```
+The table above shows the summary statistics of number of new cases, number of new deaths and case-fatality rate. The range of number of new cases is large, and the big difference between maximum value and 3rd quantile indicates that number of new cases contains a lot of large extreme values. The range of number of new deaths is much shorter, compared to the range of number of new cases. The case-fatality rate ranges from 0 to 2, having 75% of the values close to 0. There are a few number of large value due to the 7 day averaging calculation, when there exist daily records that have greater number of new deaths than number of new cases. As number of new cases varies dramatically, the number of new deaths changes smoothly. Therefore, the factors that affect case-fatality rate need further exploration.
+
+```{r, echo=FALSE}
+#fig.scatter.1 
+my_data %>% ggplot(aes(x=Report_Date, y=avg_death_rate, color=WHO_Region)) +
+  geom_point() +
+  facet_wrap(~WHO_Region) +
+  theme(axis.text=element_text(size=6)) +
+  xlab('Date') + ylab('Case-fatality Rate')
+```
+
+The scatter plot shows the trend of case-fatality rate in each region. From the plot, we can observe that there are a few peaks in all regions at different time, which might indicate the difference across region. The South-East Asian Region(SEARO) had an outbreak around the beginning of 2020. The other regions all had outbreaks around the beginning of 2020 and the end of 2021. Also, Western Pacific Region(WPRO) and Eastern Mediterranean Region(EMRO) had relatively more number of outbreaks.
+
+```{r, echo=FALSE}
+#fig.spaghetti.1 
+my_data %>% group_by(WHO_Region, Report_Date) %>%
+  summarise(r_avg_deathrate = mean(avg_death_rate)) %>%
+  ggplot(aes(x=Report_Date, y=r_avg_deathrate, by=WHO_Region)) +
+  geom_line(aes(color=WHO_Region)) +
+  xlab('Date') + ylab('Case-fatality Rate') +
+  scale_color_brewer(palette = 'Set2')
+```
+
+The above plot shows the aggregated mean case-fatality rate in each region over time. African Region(AFRO) have relatively low and flat case-fatality rate all the time. Whereas, the case-fatality rate of European Region(EMRO) and Western Pacific Region(WPRO) fluctuates in great degree.
+
+```{r, echo=FALSE}
+#histogram
+my_data %>% group_by(WHO_Region, Started_Vac) %>%
+  summarise(r_avg_deathrate = mean(avg_death_rate)) %>%
+  ggplot(aes(x=WHO_Region, y=r_avg_deathrate)) +
+  geom_bar(aes(fill=Started_Vac), ,stat = 'identity', position = position_dodge(width = 0.5)) +
+  xlab('WHO Region') + ylab('Case-fatality Rate') +
+  scale_fill_brewer(palette="Set2")
+```
+
+The histogram shows aggregated mean case-fatality rate in each combination between region and vaccination. There are obvious decreases in case-fatality rate after vaccinations are in use except African Region(AFRO). 
+
+The plots shows differences in case-fatality rate within different region and vaccination period. The main effects and interactive effects of the 2 variables will be tested in following section.
+
+```{r, echo=FALSE}
+#histogram of avg death rate
+par(mfrow = c(1,2))
+hist(my_data$avg_death_rate, xlim = c(0, 0.5), breaks = 500, xlab = 'Case-fatality Rate', main = '')
+my_data$cf_rate = log(my_data$avg_death_rate + 0.00001)
+hist(my_data$cf_rate,  xlab = 'transformed Case-fatality Rate', main = '')
+```
+
+The case-fatality rate has a right-skewed distribution, and case-fatality = 0 has great amount of mass. We decide to transform the case-fatality rate as $Y^{'}_i = log(Y_i + 0.00001)$. The small shift helps fix the problem that when case-fatality rate = 0, the log transformation is not applicable. Despite there's still mass at the left, the rest of the plot show normal distribution trend. 
+
+
+# Inferential analysis 
+As proposed in the question of interest, the full two-way ANONA is defined as $Y_{ijk} = \mu_{..} + \alpha_{i} + \beta_{j} + (\alpha\beta)_{ij} + \epsilon_{ijk}$, where index $i$ represents the region, index $j$ represents the vaccination indicator and $\epsilon s$ are i.i.d $N(0, \sigma^2)$. The constraints include $\sum_i \alpha_i = \sum_j \beta_j = 0$ and $\sum_i (\alpha\beta)_{ij} = \sum_j (\alpha\beta)_{ij} = 0$.
+
+To test whether we can drop the terms in full model, 3 F-tests are conducted at significance level $\alpha=0.05$. The F statistics is $F^* = \frac{[SSE_{red} - SSE_{full}]/[df_{red} - df_{full}]}{SSE_{full}/df_{full}}$.
+
+## F-test for interaction
+$$H_0: (\alpha\beta)_{ij} = 0, \forall i,j~vs~H_1: not~all~(\alpha\beta)_{ij}~are~0$$
+Under the null hypothesis, the F statistics $F^* = 76.256$ where $F^* ~ F_{5, 108876}$, and the p-value is smaller than $2.2 * 10^{-16}$. The test suggests that the interaction term could not be dropped.
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(car)
+full_model = lm(cf_rate ~ WHO_Region + Started_Vac + WHO_Region*Started_Vac,data = my_data)
+t2 = Anova(full_model, type = 'II')
+```
+
+## F-test for main effects
+$$H_0: \alpha_i = 0, \forall i~vs~H_1: not~all~\alpha_i~are~0$$
+Under the null hypothesis, $F^* = 974.173$ where $F^* ~ F_{5, 108876}$, and the p-value is smaller than $2.2 * 10^{-16}$. The test suggests that the main effect of Region term could not be dropped.
+
+$$H_0: \beta_j = 0, \forall j~vs~H_1: not~all~\beta_j~are~0$$
+Under the null hypothesis, $F^* = 373.054$ where $F^* ~ F_{1, 108876}$, and the p-value is smaller than $2.2 * 10^{-16}$. The test suggests that the main effect of Vaccination term could not be dropped.
+
+After conducting all tests, the result(Table 1) indicates that the effects of WHO_Region, Started_Vac and the interaction effect are all significant to the case-fatality rate. 
+
+
+## Tukey's range test
+```{r, echo=FALSE}
+T.ci=TukeyHSD(aov(avg_death_rate ~ WHO_Region + Started_Vac + WHO_Region*Started_Vac,data = my_data),conf.level = 1-0.05)
+
+idx=list();
+idx[[1]]=my_data$WHO_Region
+idx[[2]]=my_data$Started_Vac;
+
+t3 = (means.comb=tapply(my_data$avg_death_rate, INDEX=idx,mean))
+t4 = T.ci$`WHO_Region:Started_Vac`[66,]
+t4
+```
+As tested above, WHO_Region and whether vaccination is in use have effect on case-fatality rate. This section is going to test if there's exist a combination that has the lowest mean case-fatality rate. Firstly, We can see that the South-East Asian Region(SEARO) with vaccination in use and Western Pacific Region(WPRO) with vaccination in use have the 2 lowest mean case-fatality rate, which are 0.01572826 and 0.01670084 (Table 3). To find the difference between these two combination, a Tukey's range test is conducted. The result shows that the 95% confidence interval for the difference is [-0.0029869267, 0.0049320776] (Table 4), which covers 0. Therefore, we can not conclude that distinguish the combination with the lowest mean case-fatality rate. 
+
+
+# Sensitivity analysis 
+```{r, echo=FALSE}
+par(mfrow = c(1,2))
+plot(full_model, which=1)
+plot(full_model, which=2)
+```
+
+The Residuals vs Fitted plot of the full model shows the residuals are randomly distributed and independent. The constant variance assumption of residuals is not violated severely in this plot. The Normal Q-Q plot shows violation of normality assumption, but we believe this is reasonable due to the non-ideal distribution of case-fatality rate. The independence and constant variance assumptions are stronger than the normality assumption in this case, so the fitted full model is acceptable and credible.
+
+```{r}
+s1 = summary(full_model)
+s1
+```
+From the summary of the full model using linear regression, the probabilities of each level of WHO_Region, each level of Started_Vac and each combination between these 2 factors are all less than 0.05. With significance level $\alpha=0.05$, the two factors and interaction term are proved significant. The results are consistent with the results in the main analysis.
+
+# Discussion 
+
+After doing descriptive analysis, the plots show noticeable differences of case-fatality rate among region and whether vaccination is in use. To see if the effects statistically exist, several F-tests are conducted. The F-tests results indicate that the main effects and interaction effects are all statistically significant. Then, the Tukey's range test results that there's no evidence that certain combination that has the lowest mean case-fatality rate. The model diagnostics support the independence and constant variance assumptions about error term, which proves that the model and corresponding results are reliable. Therefore, the questions of interests could be answered: 
+
+1. Both region and whether vaccination is used have impact on case-fatality rate.
+
+2. There's no cell would obtain the lowest mean case-fatality rate statistically. 
+
+For future research, the project could be developed in ways such as improving the calculation of case-fatality rate to avoid extreme values. As discovered in this project, there's regional effect on case-fatality rate, then further research could explore the specific factors that would cause the regional effect, such as demographical approach, economical approach and geographical approach. 
+
+https://github.com/7qiwx/207project
+
+# Appendix 
+
+Table 1
+```{r, echo=FALSE}
+t2
+```
+
+Table 2
+```{r, echo=FALSE}
+t3
+```
+
+Table 3
+```{r, echo=FALSE}
+t4
+```
+
+# Session info {-}
+
+<span style='color:blue'>
+Report information of your `R` session for reproducibility. 
+</span> 
+
+
+```{r}
+sessionInfo()
+```
